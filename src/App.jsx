@@ -12,12 +12,14 @@ import ValueBetsTable   from './components/ValueBetsTable.jsx'
 import FlukeDetector    from './components/FlukeDetector.jsx'
 import DataIngestion    from './components/DataIngestion.jsx'
 import ScanPanel        from './components/ScanPanel.jsx'
+import ParlayBuilder    from './components/ParlayBuilder.jsx'
 
 const INITIAL_ROI  = seedROI()
 const INITIAL_BETS = seedBets()
 
 const TABS = [
   { key: 'scan',      label: '⚡  LIVE SCAN' },
+  { key: 'parlay',    label: '🎯  PARLAY BUILDER' },
   { key: 'dashboard', label: '▦  BACKTESTER' },
   { key: 'data',      label: '⬆  DATA' },
 ]
@@ -30,6 +32,7 @@ export default function App() {
   const [bets,      setBets]      = useState(INITIAL_BETS)
   const [matchData, setMatchData] = useState(null)
   const [log,       setLog]       = useState([])
+  const [livePicks, setLivePicks] = useState([])   // HIGH-conf picks from scan
   const [kpis,      setKpis]      = useState({
     roi: 18.4, drawdown: -11.2, avgEV: 0.087, kelly: 0.124,
   })
@@ -175,7 +178,23 @@ export default function App() {
                 }}>{l}</span>
               ))}
             </div>
-            <ScanPanel />
+            <ScanPanel onHighConfPicks={setLivePicks} />
+          </div>
+        )}
+
+        {/* ════ PARLAY BUILDER TAB ════ */}
+        {tab === 'parlay' && (
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            {livePicks.length > 0 && (
+              <div style={{
+                fontSize: 10, color: C.green, padding: '8px 14px',
+                background: C.green + '0D', border: `1px solid ${C.green}33`,
+                borderRadius: 2, marginBottom: 12,
+              }}>
+                ✓ {livePicks.length} live picks loaded from today's scan — they appear in the pool below
+              </div>
+            )}
+            <ParlayBuilder livePicks={livePicks} />
           </div>
         )}
 
