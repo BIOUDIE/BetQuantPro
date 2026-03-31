@@ -13,15 +13,17 @@ import FlukeDetector    from './components/FlukeDetector.jsx'
 import DataIngestion    from './components/DataIngestion.jsx'
 import ScanPanel        from './components/ScanPanel.jsx'
 import ParlayBuilder    from './components/ParlayBuilder.jsx'
+import BookingsAnalyzer from './components/BookingsAnalyzer.jsx'
 
 const INITIAL_ROI  = seedROI()
 const INITIAL_BETS = seedBets()
 
 const TABS = [
-  { key: 'scan',      label: '⚡  LIVE SCAN' },
-  { key: 'parlay',    label: '🎯  PARLAY BUILDER' },
-  { key: 'dashboard', label: '▦  BACKTESTER' },
-  { key: 'data',      label: '⬆  DATA' },
+  { key: 'scan',      label: '⚡  LIVE SCAN'        },
+  { key: 'parlay',    label: '🎯  PARLAY BUILDER'    },
+  { key: 'bookings',  label: '📋  BOOKINGS'          },
+  { key: 'dashboard', label: '▦  BACKTESTER'         },
+  { key: 'data',      label: '⬆  DATA'              },
 ]
 
 export default function App() {
@@ -195,6 +197,13 @@ export default function App() {
               </div>
             )}
             <ParlayBuilder livePicks={livePicks} />
+          </div>
+        )}
+
+        {/* ════ BOOKINGS ANALYZER TAB ════ */}
+        {tab === 'bookings' && (
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            <BookingsAnalyzer />
           </div>
         )}
 
