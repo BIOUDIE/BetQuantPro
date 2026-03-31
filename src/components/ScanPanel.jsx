@@ -348,7 +348,7 @@ function FixtureCard({ fix, onPredict }) {
 }
 
 // ── Main Scan Panel ───────────────────────────────────────────────────────────
-export default function ScanPanel() {
+export default function ScanPanel({ onHighConfPicks }) {
   const [scanning,  setScanning]  = useState(false)
   const [fixtures,  setFixtures]  = useState([])
   const [scanMeta,  setScanMeta]  = useState(null)
@@ -381,6 +381,11 @@ export default function ScanPanel() {
 
       setFixtures(data.fixtures)
       setScanMeta(data)
+
+      // Pass HIGH-confidence picks up to Parlay Builder
+      if (onHighConfPicks) {
+        onHighConfPicks(data.fixtures.filter(f => f.confidence === 'HIGH'))
+      }
     } catch (e) {
       setError(e.message)
       push(`✕ Error: ${e.message}`, C.red)
