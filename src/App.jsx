@@ -14,12 +14,14 @@ import DataIngestion    from './components/DataIngestion.jsx'
 import ScanPanel        from './components/ScanPanel.jsx'
 import ParlayBuilder    from './components/ParlayBuilder.jsx'
 import BookingsAnalyzer from './components/BookingsAnalyzer.jsx'
+import MarketAnalyzer   from './components/MarketAnalyzer.jsx'
 
 const INITIAL_ROI  = seedROI()
 const INITIAL_BETS = seedBets()
 
 const TABS = [
   { key: 'scan',      label: '⚡  LIVE SCAN'        },
+  { key: 'markets',   label: '📊  ALL MARKETS'       },
   { key: 'parlay',    label: '🎯  PARLAY BUILDER'    },
   { key: 'bookings',  label: '📋  BOOKINGS'          },
   { key: 'dashboard', label: '▦  BACKTESTER'         },
@@ -181,6 +183,13 @@ export default function App() {
               ))}
             </div>
             <ScanPanel onHighConfPicks={setLivePicks} />
+          </div>
+        )}
+
+        {/* ════ ALL MARKETS TAB ════ */}
+        {tab === 'markets' && (
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            <MarketAnalyzer />
           </div>
         )}
 
