@@ -4,7 +4,8 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/scan.js":    { "maxDuration": 30 },
-    "api/predict.js": { "maxDuration": 30 }
+    "api/picks.js":   { "maxDuration": 45 },
+    "api/predict.js": { "maxDuration": 30 },
+    "api/scan.js":    { "maxDuration": 30 }
   }
 }
