@@ -11,7 +11,7 @@ import PerformanceGraph from './components/PerformanceGraph.jsx'
 import ValueBetsTable   from './components/ValueBetsTable.jsx'
 import FlukeDetector    from './components/FlukeDetector.jsx'
 import DataIngestion    from './components/DataIngestion.jsx'
-import ScanPanel        from './components/ScanPanel.jsx'
+import UnifiedScan      from './components/UnifiedScan.jsx'
 import ParlayBuilder    from './components/ParlayBuilder.jsx'
 import BookingsAnalyzer from './components/BookingsAnalyzer.jsx'
 import MarketAnalyzer   from './components/MarketAnalyzer.jsx'
@@ -167,22 +167,10 @@ export default function App() {
       {/* ── Page body ──────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, padding: 14, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
 
-        {/* ════ LIVE SCAN TAB ════ */}
+        {/* ════ LIVE SCAN TAB — unified engine ════ */}
         {tab === 'scan' && (
           <div style={{ animation: 'fadeIn 0.3s ease' }}>
-            {/* League pills */}
-            <div style={{
-              display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center',
-            }}>
-              <span style={{ fontSize: 9, color: C.muted, letterSpacing: '0.1em' }}>LEAGUES:</span>
-              {['EPL', 'La Liga', 'Bundesliga', 'Belgian Pro League', 'Championship', 'Ligue 1', 'Serie A'].map(l => (
-                <span key={l} style={{
-                  fontSize: 9, background: C.blue + '18', color: C.blue,
-                  border: `1px solid ${C.blue}33`, padding: '2px 8px', borderRadius: 1,
-                }}>{l}</span>
-              ))}
-            </div>
-            <ScanPanel onHighConfPicks={setLivePicks} />
+            <UnifiedScan />
           </div>
         )}
 
