@@ -325,7 +325,7 @@ export default async function handler(req, res) {
     let fixtures = []
     try {
       fixtures = await smFetch(
-        `/fixtures/date/${today}?include=participants,statistics.type,scores,state,league,referees,predictions&filters=fixtureLeagues:${leagueIds}&per_page=50`,
+        `/fixtures/date/${today}?include=participants;statistics.type;scores;state;league;referees;predictions&filters=fixtureLeagues:${leagueIds}&per_page=50`,
         smToken
       )
     } catch(e) {
