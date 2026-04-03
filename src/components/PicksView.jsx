@@ -381,7 +381,13 @@ export default function PicksView() {
       if (d.planWarning) push(`⚠ ${d.planWarning}`, C.amber)
 
       if (!d.total) {
-        push(d.dayVerdict||`No fixtures ${mode==='tomorrow'?'tomorrow':'today'}.`, C.textD)
+        push(d.dayVerdict || `No fixtures ${mode==='tomorrow'?'tomorrow':'today'}.`, C.textD)
+        // Show debug info if available
+        if (d.leagueDebug) {
+          Object.entries(d.leagueDebug).forEach(([league, count]) => {
+            push(`  ${league}: ${count} fixtures`, typeof count === 'number' ? (count > 0 ? C.green : C.textDD) : C.red)
+          })
+        }
         setData(d); return
       }
       const validPicks = (d.fixtures||[]).filter(f=>f.ai?.picks?.length>0||f.topPick)
@@ -559,4 +565,3 @@ export default function PicksView() {
     </div>
   )
 }
-
