@@ -854,3 +854,5 @@ export default function BookingsAnalyzer() {
     </div>
   )
 }
+
+
