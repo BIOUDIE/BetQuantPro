@@ -372,21 +372,46 @@ export default function PicksView() {
     push('AI analysing all markets and selecting best picks per fixture...', C.amber)
     try {
       const res = await fetch('/api/picks')
-      if (!res.ok) {
-        const e = await res.json().catch(()=>({error:res.statusText}))
-        throw new Error(e.error??`Error ${res.status}`)
+      const d   = await res.json().catch(() => ({ error: true, errorMessage: res.statusText }))
+
+      // Handle structured error responses (always 200 now with error flags)
+      if (d.error && d.errorType) {
+        setError(d)          // pass the whole object so we can show fix instructions
+        push(`✕ ${d.errorMessage}`, C.red)
+        return
       }
-      const d = await res.json()
-      const validPicks = d.fixtures?.filter(f=>f.ai?.picks?.length>0||f.topPick)??[]
-      const skips      = d.fixtures?.filter(f=>f.ai?.skip)??[]
+      if (!res.ok) {
+        const msg = d.errorMessage || d.error || `Server error ${res.status}`
+        setError({ errorMessage: msg, errorFix: 'Check Vercel function logs for details.' })
+        push(`✕ ${msg}`, C.red)
+        return
+      }
+
+      // Plan warning (non-fatal)
+      if (d.planWarning) {
+        push(`⚠ ${d.planWarning}`, C.amber)
+      }
+      if (d.accessibleLeagues?.length) {
+        push(`Leagues active: ${d.accessibleLeagues.join(' · ')}`, C.textD)
+      }
+
+      if (!d.total || d.total === 0) {
+        push(d.dayVerdict || 'No fixtures today for your accessible leagues.', C.textD)
+        setData(d)
+        return
+      }
+
+      const validPicks = (d.fixtures||[]).filter(f=>f.ai?.picks?.length>0||f.topPick)
+      const skips      = (d.fixtures||[]).filter(f=>f.ai?.skip)
       push(`✓ ${d.total} fixtures analysed`, C.green)
-      push(`✓ ${validPicks.length} fixtures with picks · ${skips.length} skipped (no value)`, C.green)
-      if (d.parlay) push(`✓ Optimal ${d.parlay.legs?.length}-leg parlay built @ ${d.parlay.totOdds}`, C.green)
+      push(`✓ ${validPicks.length} with picks · ${skips.length} skipped (no value)`, C.green)
+      if (d.parlay) push(`✓ Optimal ${d.parlay.legs?.length}-leg parlay @ ${d.parlay.totOdds}`, C.green)
       push('Done. Picks are ready.', C.green)
       setData(d)
     } catch(e) {
-      setError(e.message)
-      push(`✕ ${e.message}`, C.red)
+      const msg = e.message || 'Unknown error'
+      setError({ errorMessage: msg, errorFix: 'Check your internet connection and try again.' })
+      push(`✕ ${msg}`, C.red)
     } finally {
       setScanning(false)
     }
@@ -477,9 +502,46 @@ export default function PicksView() {
 
       {/* ── Error ─────────────────────────────────────────────────────────── */}
       {error && (
-        <div style={{ background:C.red+'11', border:`1px solid ${C.red}33`, borderRadius:2, padding:'12px 16px', fontSize:11, color:C.red }}>
-          ✕ {error}
-          {error.includes('KEY')&&<div style={{ fontSize:10, color:C.textD, marginTop:6 }}>→ Add SPORTMONKS_API_KEY and ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables</div>}
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {/* Main error */}
+          <div style={{ background:C.red+'11', border:`1px solid ${C.red}33`, borderRadius:2, padding:'14px 16px' }}>
+            <div style={{ fontSize:12, color:C.red, fontWeight:600, marginBottom:6 }}>
+              ✕ {typeof error === 'string' ? error : error.errorMessage}
+            </div>
+            {error.errorFix && (
+              <div style={{ fontSize:10, color:C.textD, lineHeight:1.7, marginBottom:6 }}>
+                → {error.errorFix}
+              </div>
+            )}
+            {/* Specific guidance per error type */}
+            {error.errorType === 'PLAN_RESTRICTION' && (
+              <div style={{ fontSize:10, color:C.amber, lineHeight:1.8, padding:'8px 12px', background:C.amber+'0D', border:`1px solid ${C.amber}33`, borderRadius:2, marginTop:6 }}>
+                <div style={{ fontWeight:700, marginBottom:4 }}>⚠ Sportmonks Free Plan Limitation</div>
+                <div>Your free plan only includes the Scottish Premiership & Danish Superliga.</div>
+                <div>To access EPL, La Liga, Bundesliga, Serie A, Ligue 1, Championship & Belgian Pro League:</div>
+                <div style={{ marginTop:4 }}>1. Go to <strong>sportmonks.com/football-api/plans-pricing</strong></div>
+                <div>2. Upgrade to a paid plan (from ~€29/month)</div>
+                <div>3. Select your 7 leagues and come back — everything will work automatically</div>
+              </div>
+            )}
+            {error.errorType === 'MISSING_KEY' && (
+              <div style={{ fontSize:10, color:C.amber, lineHeight:1.8, padding:'8px 12px', background:C.amber+'0D', border:`1px solid ${C.amber}33`, borderRadius:2, marginTop:6 }}>
+                <div style={{ fontWeight:700, marginBottom:4 }}>⚠ Missing API Key</div>
+                <div>1. Go to <strong>vercel.com</strong> → Your Project → Settings → Environment Variables</div>
+                <div>2. Add the missing key shown above</div>
+                <div>3. Click Save — Vercel redeploys automatically in ~60 seconds</div>
+                <div>4. Come back and try again</div>
+              </div>
+            )}
+            {error.errorType === 'INVALID_KEY' && (
+              <div style={{ fontSize:10, color:C.amber, lineHeight:1.8, padding:'8px 12px', background:C.amber+'0D', border:`1px solid ${C.amber}33`, borderRadius:2, marginTop:6 }}>
+                <div style={{ fontWeight:700, marginBottom:4 }}>⚠ Invalid API Key</div>
+                <div>1. Go to <strong>dashboard.api-football.com</strong> (or my.sportmonks.com)</div>
+                <div>2. Navigate to Account → My Access → copy your token</div>
+                <div>3. Update SPORTMONKS_API_KEY in Vercel Environment Variables</div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
