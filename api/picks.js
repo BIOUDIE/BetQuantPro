@@ -1,60 +1,127 @@
-// api/picks.js — BQP Picks Engine v3.0
-// Robust: auto-detects plan limits, graceful fallback, clear error messages
+// api/picks.js — BQP Picks Engine v4.0
+// Migrated from Sportmonks → api-football (api-sports.io)
+// Fetches fixtures + statistics + predictions + odds in parallel per league
 
-const BASE = 'https://api.sportmonks.com/v3/football'
+const BASE = 'https://v3.football.api-sports.io'
 
-// All 7 target leagues
+// Target league IDs (api-football)
 const TARGET_LEAGUES = {
-  'EPL':                8,
-  'La Liga':            564,
-  'Bundesliga':         82,
-  'Belgian Pro League': 4,
-  'Championship':       9,
-  'Ligue 1':            301,
-  'Serie A':            384,
+  'EPL':                39,
+  'La Liga':            140,
+  'Bundesliga':         78,
+  'Belgian Pro League': 144,
+  'Championship':       40,
+  'Ligue 1':            61,
+  'Serie A':            135,
 }
 
-// Free plan leagues (always available)
-const FREE_LEAGUES = {
-  'Scottish Premiership': 501,
-  'Danish Superliga':     271,
-}
-
-// League stat defaults
+// League stat defaults (used when live stats unavailable)
 const LEAGUE_DEFAULTS = {
-  8:   { name:'EPL',                avgGoals:2.82, avgCorners:10.1, avgCards:3.2, avgFouls:20.4, penRate:0.28, refStr:68 },
-  564: { name:'La Liga',            avgGoals:2.74, avgCorners:10.8, avgCards:4.8, avgFouls:26.4, penRate:0.32, refStr:88 },
-  82:  { name:'Bundesliga',         avgGoals:3.16, avgCorners:10.4, avgCards:3.9, avgFouls:22.1, penRate:0.26, refStr:72 },
-  4:   { name:'Belgian Pro League', avgGoals:2.68, avgCorners:10.3, avgCards:3.7, avgFouls:23.6, penRate:0.26, refStr:74 },
-  9:   { name:'Championship',       avgGoals:2.55, avgCorners:9.8,  avgCards:3.5, avgFouls:24.2, penRate:0.22, refStr:66 },
-  301: { name:'Ligue 1',            avgGoals:2.62, avgCorners:10.0, avgCards:3.6, avgFouls:21.8, penRate:0.24, refStr:68 },
-  384: { name:'Serie A',            avgGoals:2.58, avgCorners:10.6, avgCards:4.6, avgFouls:24.8, penRate:0.30, refStr:90 },
-  501: { name:'Scottish Prem',      avgGoals:2.60, avgCorners:10.2, avgCards:3.8, avgFouls:22.0, penRate:0.25, refStr:70 },
-  271: { name:'Danish Superliga',   avgGoals:2.70, avgCorners:10.0, avgCards:3.4, avgFouls:21.0, penRate:0.24, refStr:65 },
+  39:  { name:'EPL',                avgGoals:2.82, avgCorners:10.1, avgCards:3.2, avgFouls:20.4, penRate:0.28, refStr:68 },
+  140: { name:'La Liga',            avgGoals:2.74, avgCorners:10.8, avgCards:4.8, avgFouls:26.4, penRate:0.32, refStr:88 },
+  78:  { name:'Bundesliga',         avgGoals:3.16, avgCorners:10.4, avgCards:3.9, avgFouls:22.1, penRate:0.26, refStr:72 },
+  144: { name:'Belgian Pro League', avgGoals:2.68, avgCorners:10.3, avgCards:3.7, avgFouls:23.6, penRate:0.26, refStr:74 },
+  40:  { name:'Championship',       avgGoals:2.55, avgCorners:9.8,  avgCards:3.5, avgFouls:24.2, penRate:0.22, refStr:66 },
+  61:  { name:'Ligue 1',            avgGoals:2.62, avgCorners:10.0, avgCards:3.6, avgFouls:21.8, penRate:0.24, refStr:68 },
+  135: { name:'Serie A',            avgGoals:2.58, avgCorners:10.6, avgCards:4.6, avgFouls:24.8, penRate:0.30, refStr:90 },
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-async function smFetch(path, token) {
-  const sep = path.includes('?') ? '&' : '?'
-  const r = await fetch(`${BASE}${path}${sep}api_token=${token}`, {
-    headers: { 'Accept': 'application/json' },
+// ── API helper ─────────────────────────────────────────────────────────────────
+async function apiFetch(path, token) {
+  const r = await fetch(`${BASE}${path}`, {
+    headers: {
+      'x-apisports-key': token,
+      'Accept': 'application/json',
+    },
   })
   const text = await r.text()
   if (!r.ok) {
-    let msg = `Sportmonks HTTP ${r.status}`
-    try { const j = JSON.parse(text); msg = j.message || j.error || msg } catch(e) {}
+    let msg = `API-Football HTTP ${r.status}`
+    try { const j = JSON.parse(text); msg = j.message || j.errors?.[0] || msg } catch(e) {}
     const err = new Error(msg)
     err.status = r.status
     throw err
   }
   try {
     const j = JSON.parse(text)
-    return j.data ?? []
+    // api-football wraps everything in { response: [...] }
+    return j.response ?? []
   } catch(e) {
-    throw new Error(`Sportmonks returned invalid JSON: ${text.slice(0,100)}`)
+    throw new Error(`API-Football returned invalid JSON: ${text.slice(0,100)}`)
   }
 }
 
+// ── Fetch fixture statistics (xG, corners, cards, shots, possession, fouls) ───
+async function fetchFixtureStats(fixtureId, token) {
+  try {
+    const data = await apiFetch(`/fixtures/statistics?fixture=${fixtureId}`, token)
+    // Returns array of { team: { id, name }, statistics: [{ type, value }] }
+    const result = {}
+    for (const teamStats of (data || [])) {
+      const teamId = teamStats.team?.id
+      if (!teamId) continue
+      const stats = {}
+      for (const s of (teamStats.statistics || [])) {
+        stats[s.type] = s.value
+      }
+      result[teamId] = stats
+    }
+    return result
+  } catch(e) {
+    return {}
+  }
+}
+
+// ── Fetch fixture events (goals, cards — useful for live enrichment) ───────────
+async function fetchFixtureEvents(fixtureId, token) {
+  try {
+    return await apiFetch(`/fixtures/events?fixture=${fixtureId}`, token)
+  } catch(e) {
+    return []
+  }
+}
+
+// ── Fetch odds for a fixture ───────────────────────────────────────────────────
+async function fetchFixtureOdds(fixtureId, token) {
+  try {
+    const data = await apiFetch(`/odds?fixture=${fixtureId}&bookmaker=6`, token) // bookmaker 6 = Bet365
+    return data?.[0]?.bookmakers?.[0]?.bets ?? []
+  } catch(e) {
+    return []
+  }
+}
+
+// ── Fetch predictions for a fixture ───────────────────────────────────────────
+async function fetchFixturePredictions(fixtureId, token) {
+  try {
+    const data = await apiFetch(`/predictions?fixture=${fixtureId}`, token)
+    return data?.[0] ?? null
+  } catch(e) {
+    return null
+  }
+}
+
+// ── Parse a specific stat value by type name ──────────────────────────────────
+function getStat(statsMap, teamId, typeName) {
+  const val = statsMap?.[teamId]?.[typeName]
+  if (val === null || val === undefined) return null
+  // Some values come as "45%" strings
+  if (typeof val === 'string' && val.endsWith('%')) return parseFloat(val)
+  return typeof val === 'number' ? val : parseFloat(val) || null
+}
+
+// ── Parse odds bets array for a specific market ───────────────────────────────
+function parseOddsBet(bets, betName) {
+  const bet = bets.find(b => b.name?.toLowerCase().includes(betName.toLowerCase()))
+  return bet?.values ?? []
+}
+function getOddsValue(bets, betName, valueName) {
+  const values = parseOddsBet(bets, betName)
+  const v = values.find(vv => vv.value?.toLowerCase() === valueName.toLowerCase())
+  return v ? parseFloat(v.odd) : null
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
 const clamp = (v, lo=0.01, hi=0.99) => Math.min(hi, Math.max(lo, isNaN(v)?lo:v))
 const fo    = (p, m=0.08) => p > 0.01 ? parseFloat((1/(p*(1+m))).toFixed(2)) : null
 const calcEV= (p, o) => (p!=null && o) ? parseFloat((p*o-1).toFixed(4)) : null
@@ -63,7 +130,7 @@ const calcK = (p, o, f=0.5) => { if(!p||!o)return null; const b=o-1,k=(p*b-(1-p)
 function poisson(l, k) { let p=Math.exp(-l); for(let i=1;i<=k;i++) p*=l/i; return p }
 function pOver(l, line) { let c=0; for(let i=0;i<=Math.floor(line);i++) c+=poisson(l,i); return clamp(1-c) }
 
-// ── Market model ──────────────────────────────────────────────────────────────
+// ── Market model ───────────────────────────────────────────────────────────────
 function buildMarkets(fd) {
   const { hXG, aXG, hGoals, aGoals, hConc, aConc, hCorners, aCorners,
     hYellow, aYellow, hRed, aRed, hFouls, aFouls,
@@ -147,7 +214,7 @@ function buildMarkets(fd) {
   }
 }
 
-// ── Parlay builder ────────────────────────────────────────────────────────────
+// ── Parlay builder ─────────────────────────────────────────────────────────────
 function buildParlay(fixtures) {
   const pool = fixtures
     .filter(f=>f.topPick&&(f.topPick.ev||0)>0)
@@ -170,7 +237,7 @@ function buildParlay(fixtures) {
   return {legs:bestCombo,totOdds:parseFloat(totOdds.toFixed(2)),totProb:parseFloat(totProb.toFixed(4)),ev:parseFloat((totProb*totOdds-1).toFixed(3)),kelly:parseFloat(Math.max(0,((totProb*(totOdds-1)-(1-totProb))/(totOdds-1))*0.25).toFixed(3))}
 }
 
-// ── AI synthesis ──────────────────────────────────────────────────────────────
+// ── AI synthesis ───────────────────────────────────────────────────────────────
 async function synthesiseWithAI(enriched, aiKey) {
   const ctx = enriched.map(f=>{
     const vp=f.valuePicks.slice(0,4).map(p=>`${p.market}@${p.odds}(EV:${(p.ev||0).toFixed(3)})`).join(', ')
@@ -221,7 +288,7 @@ Return ONLY valid JSON (no markdown):
   return match?JSON.parse(match[0]):null
 }
 
-// ── Fallback AI picks from quant data ─────────────────────────────────────────
+// ── Fallback AI picks from quant data ──────────────────────────────────────────
 function quantFallbackPicks(enriched) {
   return {
     dayVerdict:`${enriched.length} fixtures analysed. ${enriched.filter(f=>f.valuePicks.length>0).length} have value picks.`,
@@ -240,20 +307,20 @@ function quantFallbackPicks(enriched) {
   }
 }
 
-// ── Main handler ──────────────────────────────────────────────────────────────
+// ── Main handler ───────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
   if (req.method === 'OPTIONS') return res.status(200).end()
 
-  const smToken = process.env.SPORTMONKS_API_KEY
-  const aiKey   = process.env.ANTHROPIC_API_KEY
+  const apiToken = process.env.API_FOOTBALL_KEY
+  const aiKey    = process.env.ANTHROPIC_API_KEY
 
-  if (!smToken) return res.status(200).json({
+  if (!apiToken) return res.status(200).json({
     error:true,
     errorType:'MISSING_KEY',
-    errorMessage:'SPORTMONKS_API_KEY is not set in Vercel Environment Variables.',
-    errorFix:'Vercel → Your Project → Settings → Environment Variables → Add SPORTMONKS_API_KEY',
+    errorMessage:'API_FOOTBALL_KEY is not set in Vercel Environment Variables.',
+    errorFix:'Vercel → Your Project → Settings → Environment Variables → Add API_FOOTBALL_KEY (from dashboard.api-football.com)',
     fixtures:[],parlay:null,total:0,
   })
 
@@ -267,147 +334,185 @@ export default async function handler(req, res) {
 
   try {
     const today = new Date().toISOString().split('T')[0]
+    const season = new Date().getFullYear()
 
-    // ── STEP 1: Test token & discover accessible leagues ──────────────────
-    let accessibleLeagues = {}
+    // ── STEP 1: Fetch today's fixtures for all target leagues in parallel ──────
+    const leagueFixtureResults = await Promise.allSettled(
+      Object.entries(TARGET_LEAGUES).map(async ([leagueName, leagueId]) => {
+        const data = await apiFetch(
+          `/fixtures?league=${leagueId}&season=${season}&date=${today}`,
+          apiToken
+        )
+        return (data || []).map(f => ({ ...f, _leagueName: leagueName, _leagueId: leagueId }))
+      })
+    )
+
+    let allFixtures = []
     let planWarning = null
 
-    // Test with a simple leagues call first
-    try {
-      const leagueTest = await smFetch('/leagues?per_page=100', smToken)
-      const accessibleIds = new Set((leagueTest||[]).map(l=>l.id))
-
-      // Check which target leagues are accessible
-      for (const [name, id] of Object.entries(TARGET_LEAGUES)) {
-        if (accessibleIds.has(id)) accessibleLeagues[name] = id
-      }
-      // Always add free plan leagues as fallback
-      for (const [name, id] of Object.entries(FREE_LEAGUES)) {
-        if (accessibleIds.has(id)) accessibleLeagues[name] = id
-      }
-
-      if (Object.keys(accessibleLeagues).length === 0) {
-        // Can't detect from leagues list — try all target IDs directly
-        accessibleLeagues = { ...TARGET_LEAGUES }
-      }
-
-      const targetIds = Object.values(TARGET_LEAGUES)
-      const hasTargets = targetIds.some(id => accessibleIds.has(id))
-      if (!hasTargets) {
-        planWarning = `Your Sportmonks plan covers ${Object.keys(accessibleLeagues).join(', ')||'Scottish Premiership & Danish Superliga'}. The 7 target leagues (EPL, La Liga etc.) require a paid plan upgrade at sportmonks.com.`
-        // Fall back to whatever is accessible
-        accessibleLeagues = {}
-        for (const l of (leagueTest||[])) {
-          const ld = LEAGUE_DEFAULTS[l.id]
-          if (ld) accessibleLeagues[ld.name] = l.id
+    for (const result of leagueFixtureResults) {
+      if (result.status === 'fulfilled') {
+        allFixtures = allFixtures.concat(result.value)
+      } else {
+        const err = result.reason
+        if (err?.status === 401) {
+          return res.status(200).json({
+            error:true, errorType:'INVALID_KEY',
+            errorMessage:'Your API-Football key is invalid or expired.',
+            errorFix:'Go to dashboard.api-football.com → My Subscriptions → copy your API key and update API_FOOTBALL_KEY in Vercel.',
+            fixtures:[],parlay:null,total:0,
+          })
         }
-        // If nothing matches our defaults, use free plan leagues
-        if (Object.keys(accessibleLeagues).length === 0) {
-          accessibleLeagues = { ...FREE_LEAGUES }
+        if (err?.status === 403) {
+          planWarning = 'Some leagues may require a paid API-Football plan. Visit api-football.com/pricing to upgrade.'
         }
       }
-    } catch(e) {
-      if (e.status === 401) {
-        return res.status(200).json({
-          error:true, errorType:'INVALID_KEY',
-          errorMessage:'Your Sportmonks API key is invalid or expired.',
-          errorFix:'Go to dashboard.api-football.com → Account → My Access and copy a fresh API token.',
-          fixtures:[],parlay:null,total:0,
-        })
-      }
-      // Network error — use all target leagues and hope for the best
-      accessibleLeagues = { ...TARGET_LEAGUES }
     }
 
-    const leagueIds = Object.values(accessibleLeagues).join(',')
-
-    // ── STEP 2: Fetch today's fixtures (minimal safe includes) ────────────
-    let fixtures = []
-    try {
-      fixtures = await smFetch(
-        `/fixtures/date/${today}?include=participants;statistics.type;scores;state;league;referees;predictions&filters=fixtureLeagues:${leagueIds}&per_page=50`,
-        smToken
-      )
-    } catch(e) {
-      if (e.status === 403) {
-        return res.status(200).json({
-          error:true, errorType:'PLAN_RESTRICTION',
-          errorMessage:`Your Sportmonks plan does not include the requested leagues. ${planWarning||'Upgrade at sportmonks.com to access EPL, La Liga, Bundesliga, Serie A, Ligue 1, Championship and Belgian Pro League.'}`,
-          errorFix:'Visit sportmonks.com/football-api/plans-pricing to upgrade.',
-          planWarning,
-          fixtures:[],parlay:null,total:0,
-        })
-      }
-      throw e
-    }
-
-    if (!fixtures || fixtures.length === 0) {
+    if (!allFixtures.length) {
       return res.status(200).json({
         date:today, total:0, fixtures:[], parlay:null,
         planWarning,
-        dayVerdict:`No fixtures found today (${today}) for your accessible leagues: ${Object.keys(accessibleLeagues).join(', ')}. Check back on a matchday.`,
+        dayVerdict:`No fixtures found today (${today}). Check back on a matchday.`,
         message:'No fixtures today',
       })
     }
 
-    // ── STEP 3: Enrich each fixture ───────────────────────────────────────
-    const enriched = fixtures.map(fix => {
+    // ── STEP 2: For each fixture, fetch stats + predictions in parallel ─────────
+    // We batch these to avoid hammering the API — max 10 concurrent
+    const BATCH_SIZE = 10
+    const enrichedRaw = []
+
+    for (let i = 0; i < allFixtures.length; i += BATCH_SIZE) {
+      const batch = allFixtures.slice(i, i + BATCH_SIZE)
+      const batchResults = await Promise.allSettled(
+        batch.map(async (fix) => {
+          const fixtureId = fix.fixture?.id
+          if (!fixtureId) return { fix, stats: {}, predictions: null, odds: [] }
+
+          const isLiveOrFinished = ['1H','HT','2H','ET','P','FT','AET','PEN'].includes(fix.fixture?.status?.short)
+
+          // Always fetch predictions; only fetch live stats if match is in progress or done
+          const [predictions, stats, oddsBets] = await Promise.allSettled([
+            fetchFixturePredictions(fixtureId, apiToken),
+            isLiveOrFinished ? fetchFixtureStats(fixtureId, apiToken) : Promise.resolve({}),
+            fetchFixtureOdds(fixtureId, apiToken),
+          ])
+
+          return {
+            fix,
+            stats:       stats.status === 'fulfilled'       ? stats.value       : {},
+            predictions: predictions.status === 'fulfilled' ? predictions.value : null,
+            oddsBets:    oddsBets.status === 'fulfilled'     ? oddsBets.value    : [],
+          }
+        })
+      )
+      for (const r of batchResults) {
+        if (r.status === 'fulfilled') enrichedRaw.push(r.value)
+      }
+    }
+
+    // ── STEP 3: Enrich each fixture with market model ─────────────────────────
+    const enriched = enrichedRaw.map(({ fix, stats, predictions, oddsBets }) => {
       try {
-        const home = (fix.participants||[]).find(p=>p.meta?.location==='home')
-        const away = (fix.participants||[]).find(p=>p.meta?.location==='away')
-        if (!home||!away) return null
+        const home = fix.teams?.home
+        const away = fix.teams?.away
+        if (!home || !away) return null
 
-        const stats  = fix.statistics||[]
-        const ld     = LEAGUE_DEFAULTS[fix.league_id]||LEAGUE_DEFAULTS[8]
-        const state  = fix.state?.developer_name||'NS'
-        const ref    = (fix.referees||[])[0]
-        const pred   = (fix.predictions||[])[0]?.predictions
-        const scoreD = (fix.scores||[]).find(s=>s.description==='CURRENT')
-        const leagueName = fix.league?.name||ld.name||'Unknown'
+        const leagueId   = fix._leagueId
+        const ld         = LEAGUE_DEFAULTS[leagueId] ?? LEAGUE_DEFAULTS[39]
+        const state      = fix.fixture?.status?.short ?? 'NS'
+        const leagueName = fix._leagueName ?? fix.league?.name ?? 'Unknown'
 
-        // Safe stat extractor
-        const gS = (tid, pid) => {
-          const s=(stats||[]).find(x=>x.type_id===tid&&x.participant_id===pid)
-          return s?.data?.value??null
-        }
+        // ── Pull live stats if available ──
+        const hId = home.id
+        const aId = away.id
 
+        const hXG  = getStat(stats, hId, 'expected_goals')
+        const aXG  = getStat(stats, aId, 'expected_goals')
+        const hPoss= getStat(stats, hId, 'Ball Possession')  // comes as "55%"
+        const aPoss= getStat(stats, aId, 'Ball Possession')
+        const hSoT = getStat(stats, hId, 'Shots on Goal')
+        const aSoT = getStat(stats, aId, 'Shots on Goal')
+        const hCorners = getStat(stats, hId, 'Corner Kicks')
+        const aCorners = getStat(stats, aId, 'Corner Kicks')
+        const hYellow  = getStat(stats, hId, 'Yellow Cards')
+        const aYellow  = getStat(stats, aId, 'Yellow Cards')
+        const hRed     = getStat(stats, hId, 'Red Cards')
+        const aRed     = getStat(stats, aId, 'Red Cards')
+        const hFouls   = getStat(stats, hId, 'Total passes') // fallback — fouls not always in API
+        const aFouls   = getStat(stats, aId, 'Total passes')
+
+        // ── Pull predictions ──
+        const pred = predictions?.predictions
+        const p1   = pred?.percent?.home ? parseInt(pred.percent.home) / 100 : null
+        const px   = pred?.percent?.draw ? parseInt(pred.percent.draw) / 100 : null
+        const p2   = pred?.percent?.away ? parseInt(pred.percent.away) / 100 : null
+
+        // ── Pull bookmaker odds from oddsBets ──
+        const homeOdds = getOddsValue(oddsBets, 'Match Winner', 'Home')
+        const drawOdds = getOddsValue(oddsBets, 'Match Winner', 'Draw')
+        const awayOdds = getOddsValue(oddsBets, 'Match Winner', 'Away')
+
+        // ── Build fixture data for market engine ──
         const fd = {
-          hXG:null, aXG:null,
-          hGoals:ld.avgGoals/2, aGoals:ld.avgGoals/2,
-          hConc:ld.avgGoals/2,  aConc:ld.avgGoals/2,
-          hCorners:gS(34,home.id)||ld.avgCorners*0.52,
-          aCorners:gS(34,away.id)||ld.avgCorners*0.48,
-          hYellow:ld.avgCards/2, aYellow:ld.avgCards/2,
-          hRed:0.06, aRed:0.06,
-          hFouls:gS(51,home.id)||ld.avgFouls/2,
-          aFouls:gS(51,away.id)||ld.avgFouls/2,
-          hP:0.55,
-          p1:pred?.home_win?pred.home_win/100:null,
-          px:pred?.draw?pred.draw/100:null,
-          p2:pred?.away_win?pred.away_win/100:null,
-          rs:ld.refStr, isDerby:false, mi:'Regular',
-          lC:ld.avgCards, lCo:ld.avgCorners,
-          lF:ld.avgFouls, lP:ld.penRate,
+          hXG:      hXG   ?? null,
+          aXG:      aXG   ?? null,
+          hGoals:   ld.avgGoals / 2,
+          aGoals:   ld.avgGoals / 2,
+          hConc:    ld.avgGoals / 2,
+          aConc:    ld.avgGoals / 2,
+          hCorners: hCorners ?? ld.avgCorners * 0.52,
+          aCorners: aCorners ?? ld.avgCorners * 0.48,
+          hYellow:  hYellow  ?? ld.avgCards / 2,
+          aYellow:  aYellow  ?? ld.avgCards / 2,
+          hRed:     hRed     ?? 0.06,
+          aRed:     aRed     ?? 0.06,
+          hFouls:   ld.avgFouls / 2,
+          aFouls:   ld.avgFouls / 2,
+          hP:       hPoss ? hPoss / 100 : 0.55,
+          p1, px, p2,
+          rs:       ld.refStr,
+          isDerby:  false,
+          mi:       'Regular',
+          lC:       ld.avgCards,
+          lCo:      ld.avgCorners,
+          lF:       ld.avgFouls,
+          lP:       ld.penRate,
         }
 
         const markets = buildMarkets(fd)
 
+        // ── Current score ──
+        const homeGoals = fix.goals?.home ?? 0
+        const awayGoals = fix.goals?.away ?? 0
+
         return {
-          id:fix.id, name:fix.name, league:leagueName,
-          leagueId:fix.league_id, kickoff:fix.starting_at, state,
-          score:{
-            home:scoreD?.score?.participant==='home'?(scoreD.score.goals||0):0,
-            away:scoreD?.score?.participant==='away'?(scoreD.score.goals||0):0,
+          id:       fix.fixture.id,
+          name:     `${home.name} vs ${away.name}`,
+          league:   leagueName,
+          leagueId,
+          kickoff:  fix.fixture.date,
+          state,
+          score:    { home: homeGoals, away: awayGoals },
+          homeTeam: { id: home.id, name: home.name, image: home.logo },
+          awayTeam: { id: away.id, name: away.name, image: away.logo },
+          referee:  fix.fixture?.referee ?? 'TBC',
+          // Live stat snapshot (shown in UI)
+          liveStats: {
+            home: { xg: hXG, possession: hPoss, shotsOnTarget: hSoT, corners: hCorners, yellowCards: hYellow },
+            away: { xg: aXG, possession: aPoss, shotsOnTarget: aSoT, corners: aCorners, yellowCards: aYellow },
           },
-          homeTeam:{id:home.id,name:home.name,image:home.image_path},
-          awayTeam:{id:away.id,name:away.name,image:away.image_path},
-          referee:ref?.name||'TBC',
-          markets, topPick:markets.topPick,
-          valuePicks:markets.valuePicks,
-          exp:markets.exp, result:markets.result,
+          // Bookmaker odds snapshot
+          bookOdds: { home: homeOdds, draw: drawOdds, away: awayOdds },
+          markets,
+          topPick:    markets.topPick,
+          valuePicks: markets.valuePicks,
+          exp:        markets.exp,
+          result:     markets.result,
         }
       } catch(e) {
-        console.warn(`Fixture ${fix.id} failed:`,e.message)
+        console.warn(`Fixture ${fix.fixture?.id} failed:`, e.message)
         return null
       }
     }).filter(Boolean)
@@ -419,10 +524,10 @@ export default async function handler(req, res) {
       })
     }
 
-    // ── STEP 4: Build parlay ──────────────────────────────────────────────
+    // ── STEP 4: Build parlay ───────────────────────────────────────────────────
     const parlay = buildParlay(enriched)
 
-    // ── STEP 5: AI synthesis ──────────────────────────────────────────────
+    // ── STEP 5: AI synthesis ──────────────────────────────────────────────────
     let aiPicks = null
     try {
       aiPicks = await synthesiseWithAI(enriched, aiKey)
@@ -432,23 +537,23 @@ export default async function handler(req, res) {
     }
     if (!aiPicks) aiPicks = quantFallbackPicks(enriched)
 
-    // ── STEP 6: Merge & return ────────────────────────────────────────────
+    // ── STEP 6: Merge & return ────────────────────────────────────────────────
     const finalFixtures = enriched.map(fix => {
       const aiF = (aiPicks.fixtures||[]).find(f =>
-        f.name===fix.name ||
+        f.name === fix.name ||
         fix.name.toLowerCase().includes((f.name||'').toLowerCase().split(' ')[0])
       )
-      return {...fix, ai:aiF||null}
+      return { ...fix, ai: aiF || null }
     })
 
     return res.status(200).json({
-      date:today,
-      total:enriched.length,
-      accessibleLeagues:Object.keys(accessibleLeagues),
-      planWarning:planWarning||null,
-      dayVerdict:aiPicks.dayVerdict||null,
+      date:    today,
+      total:   enriched.length,
+      leagues: Object.keys(TARGET_LEAGUES),
+      planWarning: planWarning || null,
+      dayVerdict:  aiPicks.dayVerdict || null,
       parlay,
-      fixtures:finalFixtures,
+      fixtures: finalFixtures,
     })
 
   } catch(err) {
