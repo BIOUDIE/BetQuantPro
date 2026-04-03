@@ -353,7 +353,7 @@ function findBestParlay(allFixtureMarkets, nLegs=3) {
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin','*')
   res.setHeader('Access-Control-Allow-Methods','GET')
 
