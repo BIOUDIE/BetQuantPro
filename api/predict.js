@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
 
-  // Build the deep-dive prompt
+  // Build the deep-dive prompt using api-football field names
   const prompt = `You are an expert football quant analyst and betting advisor. Analyse this fixture and give a detailed punter report.
 
 FIXTURE: ${fixture.name}
@@ -28,48 +28,57 @@ Home Team: ${fixture.stats?.home?.name}
 - xG: ${fixture.stats?.home?.xg ?? 'N/A'}
 - Possession: ${fixture.stats?.home?.possession ?? 'N/A'}%
 - Shots on Target: ${fixture.stats?.home?.shotsOnTarget ?? 'N/A'}
+- Total Shots: ${fixture.stats?.home?.shots ?? 'N/A'}
 - Corners: ${fixture.stats?.home?.corners ?? 'N/A'}
 - Yellow Cards: ${fixture.stats?.home?.yellowCards ?? 'N/A'}
 - Fouls: ${fixture.stats?.home?.fouls ?? 'N/A'}
-- Dangerous Attacks: ${fixture.stats?.home?.dangerousAttacks ?? 'N/A'}
+- Offsides: ${fixture.stats?.home?.offsides ?? 'N/A'}
 
 Away Team: ${fixture.stats?.away?.name}
 - xG: ${fixture.stats?.away?.xg ?? 'N/A'}
 - Possession: ${fixture.stats?.away?.possession ?? 'N/A'}%
 - Shots on Target: ${fixture.stats?.away?.shotsOnTarget ?? 'N/A'}
+- Total Shots: ${fixture.stats?.away?.shots ?? 'N/A'}
 - Corners: ${fixture.stats?.away?.corners ?? 'N/A'}
 - Yellow Cards: ${fixture.stats?.away?.yellowCards ?? 'N/A'}
 - Fouls: ${fixture.stats?.away?.fouls ?? 'N/A'}
-- Dangerous Attacks: ${fixture.stats?.away?.dangerousAttacks ?? 'N/A'}
+- Offsides: ${fixture.stats?.away?.offsides ?? 'N/A'}
 
 BOOKMAKER ODDS:
 Home Win: ${fixture.odds?.home ?? 'N/A'}
 Draw: ${fixture.odds?.draw ?? 'N/A'}
 Away Win: ${fixture.odds?.away ?? 'N/A'}
 
+API-FOOTBALL PREDICTIONS:
+Home Win%: ${fixture.predictions?.homeWinPct ?? 'N/A'}
+Draw%: ${fixture.predictions?.drawPct ?? 'N/A'}
+Away Win%: ${fixture.predictions?.awayWinPct ?? 'N/A'}
+Predicted Winner: ${fixture.predictions?.winner ?? 'N/A'}
+Advice: ${fixture.predictions?.advice ?? 'N/A'}
+
 QUANT MODEL OUTPUT:
 Luck Score: ${fixture.quant?.luckScore} (positive = home team over-performed their xG)
-Home Pressure Index: ${fixture.quant?.homePressure}
-Away Pressure Index: ${fixture.quant?.awayPressure}
+Home Pressure Index: ${fixture.quant?.pressure}
 Volatility Score: ${fixture.quant?.volatility} (higher = more cards/fouls expected)
 Fluke Score: ${fixture.quant?.flukeScore} (>0.7 = home team overvalued, FADE signal)
 
 MODEL PROBABILITIES:
-Home Win: ${fixture.model?.home != null ? (fixture.model.home * 100).toFixed(1) + '%' : 'N/A'}
-Draw: ${fixture.model?.draw != null ? (fixture.model.draw * 100).toFixed(1) + '%' : 'N/A'}
-Away Win: ${fixture.model?.away != null ? (fixture.model.away * 100).toFixed(1) + '%' : 'N/A'}
+Home Win: ${fixture.markets?.result?.p1 != null ? (fixture.markets.result.p1 * 100).toFixed(1) + '%' : 'N/A'}
+Draw: ${fixture.markets?.result?.px != null ? (fixture.markets.result.px * 100).toFixed(1) + '%' : 'N/A'}
+Away Win: ${fixture.markets?.result?.p2 != null ? (fixture.markets.result.p2 * 100).toFixed(1) + '%' : 'N/A'}
 
-VALUE GAPS (Model - Implied):
-Home: ${fixture.gap?.home != null ? (fixture.gap.home * 100).toFixed(2) + '%' : 'N/A'}
-Draw: ${fixture.gap?.draw != null ? (fixture.gap.draw * 100).toFixed(2) + '%' : 'N/A'}
-Away: ${fixture.gap?.away != null ? (fixture.gap.away * 100).toFixed(2) + '%' : 'N/A'}
+EXPECTED METRICS:
+Goals: ${fixture.markets?.goals?.expHome ?? 'N/A'} – ${fixture.markets?.goals?.expAway ?? 'N/A'}
+BTTS probability: ${fixture.markets?.goals?.pBTTS != null ? (fixture.markets.goals.pBTTS * 100).toFixed(0) + '%' : 'N/A'}
+Over 2.5 probability: ${fixture.markets?.goals?.pOver25 != null ? (fixture.markets.goals.pOver25 * 100).toFixed(0) + '%' : 'N/A'}
+Expected corners: ${fixture.markets?.expCorners ?? 'N/A'}
+Expected cards: ${fixture.markets?.expCards ?? 'N/A'}
+Expected booking pts: ${fixture.markets?.expBkPts ?? 'N/A'}
 
-SPORTMONKS PREDICTIONS:
-Home Win%: ${fixture.predictions?.homeWinPct ?? 'N/A'}
-Draw%: ${fixture.predictions?.drawPct ?? 'N/A'}
-Away Win%: ${fixture.predictions?.awayWinPct ?? 'N/A'}
-BTTS: ${fixture.predictions?.btts ?? 'N/A'}
-Over 2.5: ${fixture.predictions?.over25 ?? 'N/A'}
+TOP VALUE PICKS (model):
+${(fixture.markets?.valuePicks ?? []).slice(0,5).map(p =>
+  `- ${p.market} @ ${p.odds} | prob ${((p.prob||0)*100).toFixed(1)}% | EV ${(p.ev||0).toFixed(3)}`
+).join('\n') || 'None identified'}
 
 Respond in this EXACT JSON format (no markdown, no preamble):
 {
@@ -109,12 +118,12 @@ Respond in this EXACT JSON format (no markdown, no preamble):
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'Content-Type':         'application/json',
-        'x-api-key':            anthropicKey,
-        'anthropic-version':    '2023-06-01',
+        'Content-Type':      'application/json',
+        'x-api-key':         anthropicKey,
+        'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:      'claude-opus-4-5',
+        model:      'claude-sonnet-4-6',
         max_tokens: 1200,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -127,7 +136,6 @@ Respond in this EXACT JSON format (no markdown, no preamble):
     try {
       parsed = JSON.parse(raw)
     } catch {
-      // Try to extract JSON if Claude added any preamble
       const match = raw.match(/\{[\s\S]*\}/)
       parsed = match ? JSON.parse(match[0]) : { verdict: raw, confidence: 'LOW' }
     }
