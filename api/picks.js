@@ -286,20 +286,43 @@ export default async function handler(req, res) {
 
   try {
     // ── Date: today or tomorrow ──────────────────────────────────────────────
-    const queryDate = req.query?.date  // "today" | "tomorrow" | "YYYY-MM-DD"
-    const now       = new Date()
-    let targetDate  = new Date(now)
+    // Vercel passes query params in req.query (object) — parse robustly
+    let queryDate = null
+    try {
+      // Standard Vercel API route
+      queryDate = req.query?.date || null
+      // Fallback: parse from URL string directly
+      if (!queryDate && req.url) {
+        const urlParts = req.url.split('?')
+        if (urlParts[1]) {
+          const params = new URLSearchParams(urlParts[1])
+          queryDate = params.get('date')
+        }
+      }
+    } catch(e) { queryDate = null }
+
+    const now = new Date()
+    // Use UTC date to avoid timezone issues on Vercel servers
+    const todayUTC = now.toISOString().split('T')[0]
+    let targetDate = new Date(todayUTC + 'T12:00:00Z')
 
     if (queryDate === 'tomorrow') {
-      targetDate.setDate(targetDate.getDate() + 1)
-    } else if (queryDate && queryDate !== 'today' && queryDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      targetDate = new Date(queryDate)
+      targetDate = new Date(todayUTC + 'T12:00:00Z')
+      targetDate.setUTCDate(targetDate.getUTCDate() + 1)
+    } else if (queryDate && queryDate !== 'today' && /^\d{4}-\d{2}-\d{2}$/.test(queryDate)) {
+      targetDate = new Date(queryDate + 'T12:00:00Z')
     }
 
     const dateStr   = targetDate.toISOString().split('T')[0]
     const dateLabel = queryDate === 'tomorrow' ? 'TOMORROW' : 'TODAY'
 
     // ── Fetch fixtures for all leagues ───────────────────────────────────────
+    console.log(`[BQP] Scanning date=${dateStr} queryDate=${queryDate} dateLabel=${dateLabel}`)
+    // Verify season detection
+    Object.entries(TARGET_LEAGUES).forEach(([name, id]) => {
+      console.log(`[BQP] ${name} (${id}): season=${detectSeason(id, dateStr)}`)
+    })
+
     const leagueResults = await Promise.allSettled(
       Object.entries(TARGET_LEAGUES).map(async ([leagueName, leagueId]) => {
         const season = detectSeason(leagueId, dateStr)
@@ -331,10 +354,20 @@ export default async function handler(req, res) {
       }
     }
 
+    // Log what each league returned
+    const leagueCounts = {}
+    leagueResults.forEach((r, i) => {
+      const name = Object.keys(TARGET_LEAGUES)[i]
+      if (r.status === 'fulfilled') leagueCounts[name] = r.value.length
+      else leagueCounts[name] = `ERROR: ${r.reason?.message?.slice(0,80)}`
+    })
+    console.log('[BQP] League fixture counts:', JSON.stringify(leagueCounts))
+
     if (!allFixtures.length) {
       return res.status(200).json({
         date:dateStr, dateLabel, total:0, fixtures:[], parlay:null, planWarning,
-        dayVerdict:`No fixtures found for ${dateLabel.toLowerCase()} (${dateStr}) in the selected leagues. ${dateLabel==='TODAY'?'Try tomorrow\'s picks instead.':''}`,
+        leagueDebug: leagueCounts,
+        dayVerdict:`No fixtures found for ${dateLabel.toLowerCase()} (${dateStr}). Seasons checked: ${Object.entries(TARGET_LEAGUES).map(([n,id])=>`${n}=${detectSeason(id,dateStr)}`).join(', ')}`,
       })
     }
 
