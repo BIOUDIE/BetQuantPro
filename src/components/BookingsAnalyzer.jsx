@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useLiveFixtures, fixtureToBookingData } from '../utils/useLiveFixtures.js'
 import { C, fmt } from '../theme.js'
 import Tag from './Tag.jsx'
 
@@ -618,7 +619,15 @@ export default function BookingsAnalyzer() {
   const [confFlt,    setConfFlt]    = useState('All')
   const [sortBy,     setSortBy]     = useState('confidence')
 
-  const fixtures = useMemo(() => generateFixtures(), [])
+  // Live data — shared cache with PicksView
+  const { fixtures: liveFixtures, loading, meta, fetchFixtures } = useLiveFixtures()
+  const isLive = liveFixtures && liveFixtures.length > 0
+
+  // Use live fixtures if available, else fall back to demo
+  const fixtures = useMemo(() => {
+    if (isLive) return liveFixtures.map(f => fixtureToBookingData(f))
+    return generateFixtures()
+  }, [liveFixtures, isLive])
 
   const modelled = useMemo(() =>
     fixtures.map(f => ({ fixture: f, model: modelBookings(f) })),
@@ -648,6 +657,18 @@ export default function BookingsAnalyzer() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+      {/* ── Live data status ─────────────────────────────────────────────────── */}
+      {!isLive && !loading && (
+        <div style={{ background:C.amber+'0D', border:`1px solid ${C.amber}33`, borderRadius:2, padding:'10px 14px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+          <span style={{ fontSize:10, color:C.amber }}>📊 Showing demo data — go to PICKS tab and press ⚡ GET TODAY'S PICKS first, then return here for live analysis.</span>
+          <button onClick={()=>fetchFixtures('today')} style={{ background:C.amber, border:'none', borderRadius:2, color:C.bg0, fontSize:10, fontWeight:700, padding:'6px 14px', cursor:'pointer', whiteSpace:'nowrap' }}>LOAD LIVE</button>
+        </div>
+      )}
+      {isLive && (
+        <div style={{ background:C.green+'0D', border:`1px solid ${C.green}33`, borderRadius:2, padding:'8px 14px' }}>
+          <span style={{ fontSize:10, color:C.green }}>✓ Live booking analysis — {meta?.total ?? liveFixtures.length} fixtures · {meta?.date}</span>
+        </div>
+      )}
       {/* ── KPI strip ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[

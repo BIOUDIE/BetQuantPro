@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useLiveFixtures, fixtureToParlayLeg } from '../utils/useLiveFixtures.js'
 import { C, fmt } from '../theme.js'
 import Tag from './Tag.jsx'
 
@@ -264,19 +265,27 @@ export default function ParlayBuilder({ livePicks = [] }) {
   const [customProb,  setCustomProb] = useState('')
   const [customMkt,   setCustomMkt]  = useState('Home Win')
 
-  // If live picks come from the Scan tab, merge them in
+  // Pull live picks from shared cache
+  const { fixtures: liveFixtures } = useLiveFixtures()
+  useEffect(() => {
+    const legs = liveFixtures
+      .map((f, i) => fixtureToParlayLeg(f, i))
+      .filter(Boolean)
+    if (legs.length > 0) {
+      setPool(prev => {
+        const existingIds = new Set(prev.map(l => l.id))
+        return [...prev.filter(l => !l.id.startsWith('live-')), ...legs.filter(l => !existingIds.has(l.id))]
+      })
+    }
+  }, [liveFixtures])
+
+  // Legacy: also accept livePicks prop
   useEffect(() => {
     if (livePicks.length > 0) {
       const liveLegs = livePicks.map((p, i) => ({
-        id:         `live-${i}`,
-        match:       p.name,
-        market:      p.bestPick?.market ?? 'Home Win',
-        odds:        p.bestPick?.odds   ?? 2.0,
-        prob:        p.bestPick?.prob   ?? 0.5,
-        ev:          p.bestPick?.ev     ?? 0,
-        confidence:  p.confidence,
-        league:      p.league,
-        selected:    false,
+        id:`live-prop-${i}`, match:p.name, market:p.bestPick?.market??'Home Win',
+        odds:p.bestPick?.odds??2.0, prob:p.bestPick?.prob??0.5,
+        ev:p.bestPick?.ev??0, confidence:p.confidence, league:p.league, selected:false,
       }))
       setPool(prev => {
         const existingIds = new Set(prev.map(l => l.id))

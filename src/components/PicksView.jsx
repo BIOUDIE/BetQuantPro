@@ -358,60 +358,42 @@ export default function PicksView() {
   const [log,       setLog]       = useState([])
   const [leagueFlt, setLeagueFlt] = useState('All')
   const [showSkips, setShowSkips] = useState(false)
+  const [dateMode,  setDateMode]  = useState('today')  // 'today' | 'tomorrow'
 
   const push = (msg,color=C.textD) => setLog(l=>[...l.slice(-20),{msg,color}])
 
-  const handleScan = async () => {
+  const handleScan = async (dm) => {
+    const mode = dm ?? dateMode
     setScanning(true)
     setError(null)
     setData(null)
     setLog([])
-    push('Fetching today\'s fixtures from Sportmonks...', C.textD)
-    push('Loading team season stats: goals, corners, cards, fouls, shots...', C.textD)
-    push('Running 55+ market models across all fixtures...', C.amber)
-    push('AI analysing all markets and selecting best picks per fixture...', C.amber)
+    push(`Fetching ${mode==='tomorrow'?"tomorrow's":"today's"} fixtures across 7 leagues...`, C.textD)
+    push('Detecting correct seasons (cross-year leagues handled automatically)...', C.textD)
+    push('Running 55+ market models: Goals, Corners, Cards, Shots, Timing...', C.amber)
+    push('AI analysing all markets and selecting best picks...', C.amber)
     try {
-      const res = await fetch('/api/picks')
-      const d   = await res.json().catch(() => ({ error: true, errorMessage: res.statusText }))
+      const res = await fetch(`/api/picks?date=${mode}`)
+      const d   = await res.json().catch(()=>({error:true,errorMessage:res.statusText}))
 
-      // Handle structured error responses (always 200 now with error flags)
-      if (d.error && d.errorType) {
-        setError(d)          // pass the whole object so we can show fix instructions
-        push(`✕ ${d.errorMessage}`, C.red)
-        return
-      }
-      if (!res.ok) {
-        const msg = d.errorMessage || d.error || `Server error ${res.status}`
-        setError({ errorMessage: msg, errorFix: 'Check Vercel function logs for details.' })
-        push(`✕ ${msg}`, C.red)
-        return
-      }
+      if (d.error && d.errorType) { setError(d); push(`✕ ${d.errorMessage}`, C.red); return }
+      if (!res.ok) { const msg=d.errorMessage||`Server error ${res.status}`; setError({errorMessage:msg}); push(`✕ ${msg}`, C.red); return }
+      if (d.planWarning) push(`⚠ ${d.planWarning}`, C.amber)
 
-      // Plan warning (non-fatal)
-      if (d.planWarning) {
-        push(`⚠ ${d.planWarning}`, C.amber)
+      if (!d.total) {
+        push(d.dayVerdict||`No fixtures ${mode==='tomorrow'?'tomorrow':'today'}.`, C.textD)
+        setData(d); return
       }
-      if (d.accessibleLeagues?.length) {
-        push(`Leagues active: ${d.accessibleLeagues.join(' · ')}`, C.textD)
-      }
-
-      if (!d.total || d.total === 0) {
-        push(d.dayVerdict || 'No fixtures today for your accessible leagues.', C.textD)
-        setData(d)
-        return
-      }
-
       const validPicks = (d.fixtures||[]).filter(f=>f.ai?.picks?.length>0||f.topPick)
       const skips      = (d.fixtures||[]).filter(f=>f.ai?.skip)
-      push(`✓ ${d.total} fixtures analysed`, C.green)
+      push(`✓ ${d.total} fixtures analysed (${d.dateLabel})`, C.green)
       push(`✓ ${validPicks.length} with picks · ${skips.length} skipped (no value)`, C.green)
       if (d.parlay) push(`✓ Optimal ${d.parlay.legs?.length}-leg parlay @ ${d.parlay.totOdds}`, C.green)
       push('Done. Picks are ready.', C.green)
       setData(d)
     } catch(e) {
-      const msg = e.message || 'Unknown error'
-      setError({ errorMessage: msg, errorFix: 'Check your internet connection and try again.' })
-      push(`✕ ${msg}`, C.red)
+      setError({errorMessage:e.message,errorFix:'Check your connection and try again.'})
+      push(`✕ ${e.message}`, C.red)
     } finally {
       setScanning(false)
     }
@@ -438,7 +420,19 @@ export default function PicksView() {
         borderTop:`2px solid ${C.amber}`, borderRadius:4,
         padding:'18px 20px', display:'flex', alignItems:'center', gap:16, flexWrap:'wrap',
       }}>
-        <button onClick={handleScan} disabled={scanning} style={{
+        {/* Today / Tomorrow toggle */}
+        <div style={{ display:'flex', background:C.bg0, border:`1px solid ${C.border}`, borderRadius:2, overflow:'hidden' }}>
+          {[['today','TODAY'],['tomorrow','TOMORROW']].map(([dm,label])=>(
+            <button key={dm} onClick={()=>{ setDateMode(dm); if(!scanning) handleScan(dm) }} disabled={scanning} style={{
+              background:dateMode===dm?C.amber:'none', border:'none',
+              color:dateMode===dm?C.bg0:C.textDD,
+              fontSize:10, fontWeight:700, letterSpacing:'0.08em',
+              padding:'10px 18px', cursor:scanning?'wait':'pointer',
+            }}>{label}</button>
+          ))}
+        </div>
+
+        <button onClick={()=>handleScan()} disabled={scanning} style={{
           background:scanning?C.dim:C.amber, border:'none', borderRadius:2,
           color:scanning?C.textD:C.bg0, fontSize:14, fontWeight:700,
           letterSpacing:'0.08em', padding:'13px 30px',
@@ -448,8 +442,8 @@ export default function PicksView() {
           boxShadow:scanning?'none':'0 2px 12px #F0A50033',
         }}>
           {scanning
-            ? <><span style={{animation:'pulse 1s infinite'}}>⟳</span> ANALYSING TODAY...</>
-            : '⚡  GET TODAY\'S PICKS'
+            ? <><span style={{animation:'pulse 1s infinite'}}>⟳</span> ANALYSING...</>
+            : `⚡  GET ${dateMode==='tomorrow'?"TOMORROW'S":"TODAY'S"} PICKS`
           }
         </button>
 
@@ -502,46 +496,9 @@ export default function PicksView() {
 
       {/* ── Error ─────────────────────────────────────────────────────────── */}
       {error && (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {/* Main error */}
-          <div style={{ background:C.red+'11', border:`1px solid ${C.red}33`, borderRadius:2, padding:'14px 16px' }}>
-            <div style={{ fontSize:12, color:C.red, fontWeight:600, marginBottom:6 }}>
-              ✕ {typeof error === 'string' ? error : error.errorMessage}
-            </div>
-            {error.errorFix && (
-              <div style={{ fontSize:10, color:C.textD, lineHeight:1.7, marginBottom:6 }}>
-                → {error.errorFix}
-              </div>
-            )}
-            {/* Specific guidance per error type */}
-            {error.errorType === 'PLAN_RESTRICTION' && (
-              <div style={{ fontSize:10, color:C.amber, lineHeight:1.8, padding:'8px 12px', background:C.amber+'0D', border:`1px solid ${C.amber}33`, borderRadius:2, marginTop:6 }}>
-                <div style={{ fontWeight:700, marginBottom:4 }}>⚠ Sportmonks Free Plan Limitation</div>
-                <div>Your free plan only includes the Scottish Premiership & Danish Superliga.</div>
-                <div>To access EPL, La Liga, Bundesliga, Serie A, Ligue 1, Championship & Belgian Pro League:</div>
-                <div style={{ marginTop:4 }}>1. Go to <strong>sportmonks.com/football-api/plans-pricing</strong></div>
-                <div>2. Upgrade to a paid plan (from ~€29/month)</div>
-                <div>3. Select your 7 leagues and come back — everything will work automatically</div>
-              </div>
-            )}
-            {error.errorType === 'MISSING_KEY' && (
-              <div style={{ fontSize:10, color:C.amber, lineHeight:1.8, padding:'8px 12px', background:C.amber+'0D', border:`1px solid ${C.amber}33`, borderRadius:2, marginTop:6 }}>
-                <div style={{ fontWeight:700, marginBottom:4 }}>⚠ Missing API Key</div>
-                <div>1. Go to <strong>vercel.com</strong> → Your Project → Settings → Environment Variables</div>
-                <div>2. Add the missing key shown above</div>
-                <div>3. Click Save — Vercel redeploys automatically in ~60 seconds</div>
-                <div>4. Come back and try again</div>
-              </div>
-            )}
-            {error.errorType === 'INVALID_KEY' && (
-              <div style={{ fontSize:10, color:C.amber, lineHeight:1.8, padding:'8px 12px', background:C.amber+'0D', border:`1px solid ${C.amber}33`, borderRadius:2, marginTop:6 }}>
-                <div style={{ fontWeight:700, marginBottom:4 }}>⚠ Invalid API Key</div>
-                <div>1. Go to <strong>dashboard.api-football.com</strong> (or my.sportmonks.com)</div>
-                <div>2. Navigate to Account → My Access → copy your token</div>
-                <div>3. Update SPORTMONKS_API_KEY in Vercel Environment Variables</div>
-              </div>
-            )}
-          </div>
+        <div style={{ background:C.red+'11', border:`1px solid ${C.red}33`, borderRadius:2, padding:'12px 16px', fontSize:11, color:C.red }}>
+          ✕ {error}
+          {error.includes('KEY')&&<div style={{ fontSize:10, color:C.textD, marginTop:6 }}>→ Add SPORTMONKS_API_KEY and ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables</div>}
         </div>
       )}
 
